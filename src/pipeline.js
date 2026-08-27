@@ -6,9 +6,14 @@ import { translateBoxes } from "./translate.js";
 import { renderText } from "./render.js";
 import { Cache, sha } from "./cache.js";
 import { Series } from "./series.js";
+import { reviewRender } from "./review.js";
 
 const CREDIT = /https?:|www\.|\.(net|com|org|xyz|io|me|tv|kr|es|co)\b|@|scan|translat|typeset|raw provider/i;
 const norm = (t) => (t ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+// Source languages written in non-Latin scripts: text that is already Latin
+// (brand names, English on clothing, logos) is part of the artwork.
+const NON_LATIN = /^(ko|ja|zh|th|ar|ru|uk|el|he|hi|bn|ka|hy|km|lo|my|si|ta|te|kn|ml|ur|fa)\b/i;
+const isLatin = (t) => /^[\x00-\x7F\u00C0-\u024F\s\p{P}\p{S}\d]+$/u.test(t) && /[A-Za-z]/.test(t);
 
 /**
  * 1. detect    — RT-DETR-v2 finds bubbles + text boxes         [cached by image]
@@ -20,7 +25,7 @@ const norm = (t) => (t ?? "").replace(/\s+/g, " ").trim().toLowerCase();
  */
 export const translateStrip = async (inputPath, outputPath, {
   sourceLang, glossary, provider: providerName, model, series: seriesFile, cache: cacheOpt,
-  debugJson, keepWork = false, log = console.error,
+  review = false, debugJson, keepWork = false, log = console.error,
 } = {}) => {
   const provider = createProvider({ provider: providerName, model });
   const cache = Cache.fromEnv(cacheOpt);
@@ -62,7 +67,8 @@ export const translateStrip = async (inputPath, outputPath, {
 
   // decide what gets erased / rendered
   for (const b of boxes) if (b.original && !b.translation && b.role !== "credit") b.translation = b.original;
-  const withText = boxes.filter((b) => b.original && b.role !== "sign" && (b.role === "credit" || norm(b.original) !== norm(b.translation)));
+  const artText = (b) => sourceLang && NON_LATIN.test(sourceLang) && b.role !== "credit" && isLatin(b.original);
+  const withText = boxes.filter((b) => b.original && b.role !== "sign" && !artText(b) && (b.role === "credit" || norm(b.original) !== norm(b.translation)));
   for (const b of withText) if (b.role === "credit" && !CREDIT.test(b.original)) b.role = "sign";
   const usable = withText.filter((b) => b.role !== "credit" && b.translation);
   log(`${withText.length}/${boxes.length} detection(s) contain text, ${withText.length - usable.length} credit/watermark(s) erased`);
@@ -83,9 +89,18 @@ export const translateStrip = async (inputPath, outputPath, {
 
   // 4. render
   t = Date.now();
-  const rendered = await renderText(await fs.readFile(scrubbedPath), usable);
-  await fs.writeFile(outputPath, rendered);
+  const scrubbed = await fs.readFile(scrubbedPath);
+  let rendered = await renderText(scrubbed, usable);
   lap("render", t);
+
+  // 4b. review (opt-in): look at the typeset page, fix what the model flags
+  if (review && usable.length) {
+    t = Date.now();
+    const changed = await reviewRender(rendered, usable, { provider, log });
+    if (changed.length) rendered = await renderText(scrubbed, usable);
+    lap("review", t, ` (${changed.length} fixed)`);
+  }
+  await fs.writeFile(outputPath, rendered);
 
   // 5. learn
   if (series) {

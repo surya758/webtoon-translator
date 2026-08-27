@@ -245,7 +245,9 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
       dark = (await regionLuminance(image, clampRect({ x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 }, width, height))) < 128;
     }
 
-    const { size, lines } = fit(text, availW, availH, { maxSize, shape });
+    // emphasis: shouts get up to +20% size; box.scale lets a review pass shrink a block
+    const scale = (box.scale ?? 1) * (box.emphasis === "shout" ? 1.2 : 1);
+    const { size, lines } = fit(text, availW * Math.min(1, scale), availH * Math.min(1, scale), { maxSize: Math.round(maxSize * scale), shape });
     const lh = size * 1.15;
     const blockW = Math.max(...lines.map((l) => measure(l, size)));
     const blockH = lines.length * lh;
@@ -255,13 +257,18 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
     const ascent = (main.ascender / main.unitsPerEm) * size;
     const descent = (-main.descender / main.unitsPerEm) * size;
     const startY = pad + (lh - (ascent + descent)) / 2 + ascent;
+    // bold/shout: thicken with a same-colour stroke; italic: skew the whole block
+    const heavy = box.emphasis === "bold" || box.emphasis === "shout";
     const paths = lines
       .map((l, i) => pathData(l, (region.w - measure(l, size)) / 2, startY + i * lh, size))
       .map((d) => box.kind === "free"
         ? `<path d="${d}" fill="${color}" stroke="${dark ? "#111111" : "#ffffff"}" stroke-width="${Math.max(2, size * 0.12)}" stroke-linejoin="round" paint-order="stroke"/>`
-        : `<path d="${d}" fill="${color}"/>`)
+        : heavy
+          ? `<path d="${d}" fill="${color}" stroke="${color}" stroke-width="${(size * 0.055).toFixed(2)}" stroke-linejoin="round"/>`
+          : `<path d="${d}" fill="${color}"/>`)
       .join("");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${region.w}" height="${region.h}">${paths}</svg>`;
+    const skew = box.emphasis === "italic" ? ` transform="translate(${(region.h * 0.11).toFixed(1)} 0) skewX(-12)"` : "";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${region.w}" height="${region.h}"><g${skew}>${paths}</g></svg>`;
     composites.push({ input: Buffer.from(svg), left: region.x, top: region.y });
   }
   return composites.length ? image.composite(composites).png().toBuffer() : buffer;

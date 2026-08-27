@@ -17,6 +17,7 @@ const { values, positionals } = parseArgs({
     model: { type: "string", short: "m" },
     series: { type: "string", short: "s" },
     "no-cache": { type: "boolean", default: false },
+    review: { type: "boolean", default: false },
     cache: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
@@ -33,6 +34,8 @@ if (values.help || !positionals.length) {
   --model     model id for the provider  (defaults: gemini-3.5-flash-lite / gpt-5-mini)
   --series    series memory JSON (glossary, character voices, recent lines) — created if missing,
               read before translating, updated after
+  --review    second pass: the model inspects the typeset page and overflow/unreadable
+              blocks are re-rendered smaller, clear mistranslations corrected (+1 call)
   --cache     cache dir (default ~/.cache/webtoon-translator or $CACHE_DIR); --no-cache to disable
   --keep      keep out/.work (scrubbed image, detector boxes, inpaint mask)`);
   process.exit(positionals.length ? 0 : 1);
@@ -51,6 +54,7 @@ const boxes = await translateStrip(input, out, {
   provider: values.provider,
   model: values.model,
   series: values.series,
+  review: values.review,
   cache: values["no-cache"] ? false : values.cache,
   debugJson: values.json ? path.join(path.dirname(out), `${base}.json`) : undefined,
 });

@@ -62,6 +62,8 @@ node bin/cli.js page.jpg --lang es                # source-language hint (ko, ja
 node bin/cli.js page.jpg --provider openai -m gpt-4.1-mini
 node bin/cli.js page.jpg --series myshow.json     # series memory: glossary, character voices, recent pages (see below)
 node bin/cli.js page.jpg --glossary names.txt     # one-off list of names / terms to keep consistent
+node bin/cli.js page.jpg --review                 # QA pass: model inspects the typeset page, overflow/unreadable
+                                                  # blocks are re-rendered smaller, clear mistranslations fixed
 node bin/cli.js page.jpg --json --keep            # dump regions JSON + keep out/.work (mask, scrubbed page)
 node bin/cli.js --help
 ```
@@ -86,8 +88,9 @@ Detection, translation and inpainting results are cached under `~/.cache/webtoon
 
 1. **Detect** (`py/scrub.py detect`) — class-agnostic NMS across the detector's two text classes, nested-box suppression, and each text box is paired with the bubble that contains it.
 2. **Translate** (`src/translate.js`) — the LLM sees the whole page (downscaled) and every crop; it labels each as `dialogue / thought / caption / sfx / sign / credit`. Detections that come back with no text are dropped here, so the detector's false positives (window grids, patterns) are never erased.
-3. **Erase** (`py/scrub.py inpaint`) — only boxes with confirmed text are masked. Bubble text: dilated letter strokes. Text over art: colour-aware stroke mask (catches translucent watermarks). LaMa runs per connected component on a padded crop. `credit` (scanlation watermarks, site URLs) is erased and not re-rendered; `sign` (shop names, plates, title logos) and anything that translates to itself is left exactly as drawn.
-4. **Render** (`src/render.js`) — font size is capped near the original's (estimated from box area ÷ character count). The block is centred on the centroid of the bubble's interior, found by flood-filling the fill colour from the erased text's spot (eroded so gaps between burst lines don't leak; bounded locally so each lobe of a multi-lobe bubble is handled on its own). Fewer lines are preferred when that costs under ~18 % of size.
+3. **Erase** (`py/scrub.py inpaint`) — only boxes with confirmed text are masked. Bubble text: dilated letter strokes. Text over art: colour-aware stroke mask (catches translucent watermarks). LaMa runs per connected component on a padded crop. `credit` (scanlation watermarks, site URLs) is erased and not re-rendered; `sign` (shop names, plates, title logos), anything that translates to itself, and — for non-Latin source languages — anything already in Latin script (brand names, English on clothing) is left exactly as drawn.
+4. **Render** (`src/render.js`) — font size is capped near the original's (estimated from box area ÷ character count). The block is centred on the centroid of the bubble's interior, found by flood-filling the fill colour from the erased text's spot (eroded so gaps between burst lines don't leak; bounded locally so each lobe of a multi-lobe bubble is handled on its own). Fewer lines are preferred when that costs under ~18 % of size. The model also tags each line's lettering (`bold` / `italic` / `shout`): bold and shouts get a heavier face (shouts up to +20 % size), italics are slanted.
+5. **Review** (`src/review.js`, `--review`) — crops of every typeset block from the *finished* page go back to the model; anything flagged as overflowing or unreadable is re-rendered at 85 %, and a flagged mistranslation with a suggested fix is swapped in. One extra call per page.
 
 ## Customising
 
@@ -98,7 +101,7 @@ Detection, translation and inpainting results are cached under `~/.cache/webtoon
 ## Known limits
 
 - Brush-lettered sound effects drawn as artwork are often missed by the detector and left in the source language.
-- One font, no bold/italic emphasis, no vertical text.
+- One font family; emphasis is synthesised (stroke / skew) rather than true bold/italic faces. No vertical text.
 - `sign` text is never translated (conservative on purpose — flip `b.role !== "sign"` in `src/pipeline.js` if you want shop signs localised).
 - No correction UI yet; `--json --keep` exposes everything needed to build one.
 

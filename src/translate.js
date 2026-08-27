@@ -11,8 +11,9 @@ const SCHEMA = {
       translation: { type: "string" },
       speaker: { type: "string" },
       role: { type: "string", enum: ["dialogue", "thought", "caption", "sfx", "sign", "credit"] },
+      emphasis: { type: "string", enum: ["none", "bold", "italic", "shout"] },
     },
-    required: ["id", "original", "translation", "role"],
+    required: ["id", "original", "translation", "role", "emphasis"],
   },
 };
 
@@ -23,6 +24,7 @@ Translate like a published English webtoon: casual, punchy, matching tone and re
 speaker: who says the line (a name from the context if known, else a short stable label like "boy in cap"). Keep the same label for the same person across crops.
 Keep each translation compact enough to fit in the original's bubble. Use the page image and neighbouring lines for context (who is speaking, gender, continuity).
 role: "dialogue"/"thought" for speech, "caption" for narration boxes, "sfx" for sound effects (give the English onomatopoeia), "sign" for in-world text, "credit" for translator/scanlation watermarks, site URLs or upload credits (these will be erased, not translated).
+emphasis: how the original is lettered — "bold" for heavier/larger emphasis lettering, "italic" for slanted or whispered/thought lettering, "shout" for big jagged shouting, else "none".
 If a crop truly contains no text, return an empty original and translation.
 ${glossary ? `Use these names/terms consistently:\n${glossary}\n` : ""}${context ? `\nSERIES CONTEXT:\n${context}\n` : ""}Return one entry per crop, ids 1..${n}.`;
 
@@ -62,6 +64,7 @@ export const translateBoxes = async (imagePath, boxes, { sourceLang, glossary, c
       box.original = it.original?.trim() ?? "";
       box.translation = it.translation?.trim() ?? "";
       box.role = it.role;
+      box.emphasis = it.emphasis && it.emphasis !== "none" ? it.emphasis : undefined;
       if (it.speaker) box.speaker = it.speaker;
     }
     log(`translated ${Math.min(start + batch.length, boxes.length)}/${boxes.length}`);
