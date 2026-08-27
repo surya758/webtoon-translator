@@ -118,7 +118,7 @@ async function addFiles(files) {
   status(`uploading ${imgs.length} page(s)…`);
   for (const f of imgs) {
     const r = await fetch(`/jobs/${job.id}/upload/${encodeURIComponent(f.name)}`, { method: "PUT", body: f });
-    const { pages } = await r.json(); render(pages);
+    const { pages } = await r.json(); job.pages = pages; render(pages);
   }
   status(`${imgs.length} page(s) added`);
 }
