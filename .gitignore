@@ -1,0 +1,11 @@
+node_modules/
+out/
+.env
+service-account.json
+py/.venv/
+py/models/*
+!py/models/.gitkeep
+__pycache__/
+.DS_Store
+.omc/
+py/*.egg-info/

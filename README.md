@@ -1,0 +1,86 @@
+# webtoon-translator
+
+Translate webtoon / manhwa / manga pages into English, end to end: find the text, read and translate it with an LLM, erase the original, and typeset the English back into the bubbles.
+
+```
+node bin/cli.js page.jpg --lang ko        →  out/page.en.png
+```
+
+| Step | What runs | Notes |
+|---|---|---|
+| **Detect** | [RT-DETR-v2 comic detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) (ONNX, CPU) | Trained on ~11k manga / webtoon / western comic pages. Returns speech bubbles *and* text boxes. Tall strips are scanned in square sliding windows. |
+| **OCR + translate** | **OpenAI**, **Gemini**, or **Gemini on Vertex AI** — your choice | One batched call per page: a page thumbnail for context plus one crop per text box. Returns original, translation, speaker and role. |
+| **Erase** | [LaMa fine-tuned for manga/anime](https://github.com/Sanster/models/releases/tag/AnimeMangaInpainting) (TorchScript; Apple MPS / CUDA / CPU) | Stroke-level masks, so artwork under watermarks and free text survives and panel borders don't get "continued" through bubbles. |
+| **Typeset** | opentype.js vector text | Real glyph metrics, shrink-to-fit, centred on the bubble's actual interior (flood-filled from the erased text), dark/light text chosen from the background, outlined text over art, symbol font fallback. |
+
+Roughly 15 s for a 720×9000 strip on an M-series Mac, using one or two LLM calls.
+
+## Setup
+
+Requires Node ≥ 20, Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone https://github.com/surya758/webtoon-translator
+cd webtoon-translator
+npm install
+npm run setup:py       # creates py/.venv with torch, onnxruntime, opencv
+npm run models         # downloads detector.onnx + anime-manga-big-lama.pt (~385 MB)
+cp .env.example .env   # then set ONE of the credential options below
+```
+
+### Choose an LLM backend
+
+The backend is auto-detected from whichever credential you set; override with `--provider` / `LLM_PROVIDER`.
+
+| Provider | Set | Default model |
+|---|---|---|
+| `openai` | `OPENAI_API_KEY` | `gpt-5-mini` (`OPENAI_MODEL` / `--model`) |
+| `gemini` | `GEMINI_API_KEY` (AI Studio key) | `gemini-3.5-flash-lite` (`GEMINI_MODEL`) |
+| `vertex` | `service-account.json` in the repo root, or `GOOGLE_APPLICATION_CREDENTIALS_JSON`, or `GOOGLE_CLOUD_PROJECT` + ADC | `gemini-3.5-flash-lite` (`GEMINI_MODEL`) |
+
+Any OpenAI-compatible gateway works via `OPENAI_BASE_URL`.
+
+## Usage
+
+```bash
+node bin/cli.js page.jpg                          # auto-detect language + provider
+node bin/cli.js page.jpg --lang es                # source-language hint (ko, ja, zh, es, …)
+node bin/cli.js page.jpg --provider openai -m gpt-4.1-mini
+node bin/cli.js page.jpg --glossary names.txt     # keep character names / terms consistent
+node bin/cli.js page.jpg --json --keep            # dump regions JSON + keep out/.work (mask, scrubbed page)
+node bin/cli.js --help
+```
+
+Try it on the bundled synthetic sample: `node bin/cli.js samples/strip.png --lang ko`.
+
+## How the pipeline makes its decisions
+
+1. **Detect** (`py/scrub.py detect`) — class-agnostic NMS across the detector's two text classes, nested-box suppression, and each text box is paired with the bubble that contains it.
+2. **Translate** (`src/translate.js`) — the LLM sees the whole page (downscaled) and every crop; it labels each as `dialogue / thought / caption / sfx / sign / credit`. Detections that come back with no text are dropped here, so the detector's false positives (window grids, patterns) are never erased.
+3. **Erase** (`py/scrub.py inpaint`) — only boxes with confirmed text are masked. Bubble text: dilated letter strokes. Text over art: colour-aware stroke mask (catches translucent watermarks). LaMa runs per connected component on a padded crop. `credit` (scanlation watermarks, site URLs) is erased and not re-rendered; `sign` (shop names, plates, title logos) and anything that translates to itself is left exactly as drawn.
+4. **Render** (`src/render.js`) — font size is capped near the original's (estimated from box area ÷ character count). The block is centred on the centroid of the bubble's interior, found by flood-filling the fill colour from the erased text's spot (eroded so gaps between burst lines don't leak; bounded locally so each lobe of a multi-lobe bubble is handled on its own). Fewer lines are preferred when that costs under ~18 % of size.
+
+## Customising
+
+- **Font** — `FONT_PATH=/path/to/font.ttf` (defaults: Comic Sans MS Bold on macOS, DejaVu Sans Bold on Linux). Use a real comic face like *CC Wild Words* or *Anime Ace* for published-looking results. `FALLBACK_FONT_PATH` covers symbols the comic font lacks.
+- **Detector sensitivity** — `--threshold` in `py/scrub.py` (default 0.3; safe to keep low since OCR filters false positives).
+- **Prompt / tone** — `PROMPT` in `src/translate.js`.
+
+## Known limits
+
+- Brush-lettered sound effects drawn as artwork are often missed by the detector and left in the source language.
+- One font, no bold/italic emphasis, no vertical text.
+- `sign` text is never translated (conservative on purpose — flip `b.role !== "sign"` in `src/pipeline.js` if you want shop signs localised).
+- No correction UI yet; `--json --keep` exposes everything needed to build one.
+
+## Credits
+
+- Detector: [ogkalu/comic-text-and-bubble-detector](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) (Apache-2.0), as used by [comic-translate](https://github.com/ogkalu2/comic-translate)
+- Inpainting: [anime-manga-big-lama](https://github.com/Sanster/models/releases/tag/AnimeMangaInpainting) — LaMa ([Suvorov et al., WACV 2022](https://github.com/advimman/lama)) fine-tuned by the lama-cleaner author
+- Prior art that shaped the design: [manga-image-translator](https://github.com/zyddnys/manga-image-translator), [BallonsTranslator](https://github.com/dmMaze/BallonsTranslator)
+
+## Legal
+
+This is a tool. Translating comics you don't hold rights to, and distributing the results, may infringe copyright in your jurisdiction. Use it on your own work, with permission, or for personal reading.
+
+MIT — see [LICENSE](LICENSE).

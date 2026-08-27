@@ -1,0 +1,53 @@
+{
+  "name": "webtoon-translator",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Translate webtoon/manhwa/manga pages into English: RT-DETR text detection, LLM OCR+translation (OpenAI / Gemini / Vertex AI), LaMa inpainting, vector typesetting.",
+  "bin": {
+    "webtoon-translate": "./bin/cli.js"
+  },
+  "scripts": {
+    "translate": "node bin/cli.js",
+    "models": "bash scripts/download-models.sh",
+    "setup:py": "cd py && uv venv --python 3.12 && uv pip install -e ."
+  },
+  "dependencies": {
+    "@google/genai": "2.1.0",
+    "dotenv": "^16.4.5",
+    "openai": "^7.7.0",
+    "opentype.js": "^2.0.0",
+    "sharp": "^0.33.5"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/surya758/webtoon-translator.git"
+  },
+  "homepage": "https://github.com/surya758/webtoon-translator#readme",
+  "keywords": [
+    "webtoon",
+    "manhwa",
+    "manga",
+    "comic",
+    "translation",
+    "scanlation",
+    "typesetting",
+    "ocr",
+    "inpainting",
+    "lama",
+    "rt-detr",
+    "gemini",
+    "openai",
+    "vertex-ai"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "py/scrub.py",
+    "py/pyproject.toml",
+    "scripts"
+  ]
+}
