@@ -60,12 +60,27 @@ Any OpenAI-compatible gateway works via `OPENAI_BASE_URL`.
 node bin/cli.js page.jpg                          # auto-detect language + provider
 node bin/cli.js page.jpg --lang es                # source-language hint (ko, ja, zh, es, …)
 node bin/cli.js page.jpg --provider openai -m gpt-4.1-mini
-node bin/cli.js page.jpg --glossary names.txt     # keep character names / terms consistent
+node bin/cli.js page.jpg --series myshow.json     # series memory: glossary, character voices, recent pages (see below)
+node bin/cli.js page.jpg --glossary names.txt     # one-off list of names / terms to keep consistent
 node bin/cli.js page.jpg --json --keep            # dump regions JSON + keep out/.work (mask, scrubbed page)
 node bin/cli.js --help
 ```
 
 Try it on the bundled synthetic sample: `node bin/cli.js samples/strip.png --lang ko`.
+
+### Series memory (`--series`)
+
+Pages of a serial are translated in isolation unless you tell the tool they belong together. `--series myshow.json` keeps a small localization bible per series and uses it on every page:
+
+- **glossary** — proper nouns, titles, techniques, catchphrases and the English chosen for each; the prompt tells the model to use these renderings exactly.
+- **characters** — each speaker with pronouns and a short voice description ("blunt, swears", "formal, addresses everyone as sir"), so a character sounds the same on page 40 as on page 3.
+- **recent** — the last 6 pages' dialogue, so conversations continue naturally across page breaks.
+
+The file is created if missing, read before translating, and after each page a cheap text-only call proposes additions, which are merged in. Edit it by hand any time; add `"locked": true` to an entry the model must never change.
+
+### Cache
+
+Detection, translation and inpainting results are cached under `~/.cache/webtoon-translator` (`CACHE_DIR` / `--cache dir` / `--no-cache`), keyed by image content plus whatever each stage depends on. Re-running a page with a different model, prompt, font or series context only redoes the stage whose inputs changed — a re-render is under a second, a re-translate skips detection and LaMa entirely.
 
 ## How the pipeline makes its decisions
 

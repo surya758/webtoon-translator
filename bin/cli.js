@@ -15,6 +15,9 @@ const { values, positionals } = parseArgs({
     keep: { type: "boolean", default: false },
     provider: { type: "string", short: "p" },
     model: { type: "string", short: "m" },
+    series: { type: "string", short: "s" },
+    "no-cache": { type: "boolean", default: false },
+    cache: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -28,6 +31,9 @@ if (values.help || !positionals.length) {
   --json      also write detected regions to out/<name>.json
   --provider  vertex | gemini | openai   (default: auto-detect from credentials)
   --model     model id for the provider  (defaults: gemini-3.5-flash-lite / gpt-5-mini)
+  --series    series memory JSON (glossary, character voices, recent lines) — created if missing,
+              read before translating, updated after
+  --cache     cache dir (default ~/.cache/webtoon-translator or $CACHE_DIR); --no-cache to disable
   --keep      keep out/.work (scrubbed image, detector boxes, inpaint mask)`);
   process.exit(positionals.length ? 0 : 1);
 }
@@ -44,6 +50,8 @@ const boxes = await translateStrip(input, out, {
   keepWork: values.keep,
   provider: values.provider,
   model: values.model,
+  series: values.series,
+  cache: values["no-cache"] ? false : values.cache,
   debugJson: values.json ? path.join(path.dirname(out), `${base}.json`) : undefined,
 });
 for (const b of boxes) console.log(`[${b.kind}] ${b.original}  →  ${b.translation}`);

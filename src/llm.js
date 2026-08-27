@@ -9,8 +9,7 @@ const require = createRequire(import.meta.url);
  *
  *   provider.generateJSON({ parts, schema, temperature })
  *     parts:  [{ text } | { image: { mimeType, data: Buffer } }]  in order
- *     schema: JSON Schema whose root is an ARRAY (what the pipeline wants)
- *     → parsed array
+ *     schema: JSON Schema (array root → parsed array; object root → parsed object)
  *
  *   vertex  — Gemini on Vertex AI (service account / ADC). Default when a
  *             service-account.json or GOOGLE_CLOUD_PROJECT is present.
@@ -45,9 +44,10 @@ const loadServiceAccount = () => {
   }
 };
 
-const parseJSON = (text) => {
+const parseJSON = (text, schema) => {
   try {
     const v = JSON.parse(text ?? "");
+    if (schema?.type === "object") return v?.items && Object.keys(v).length === 1 ? v.items : v;
     return Array.isArray(v) ? v : (v?.items ?? []);
   } catch {
     throw new Error(`Model returned non-JSON: ${String(text).slice(0, 200)}`);
@@ -73,7 +73,7 @@ const geminiProvider = (client, name, model) => ({
         config: { responseMimeType: "application/json", responseSchema: schema, temperature, safetySettings: GEMINI_SAFETY },
       }),
     );
-    return parseJSON(response.text);
+    return parseJSON(response.text, schema);
   },
 });
 
@@ -103,8 +103,8 @@ const openai = (model) => {
     name: "openai",
     model: chosen,
     generateJSON: async ({ parts, schema, temperature = 0 }) => {
-      // OpenAI wants an object root: wrap the array under "items".
-      const wrapped = { type: "object", properties: { items: schema }, required: ["items"], additionalProperties: false };
+      // OpenAI wants an object root: wrap array schemas under "items".
+      const wrapped = schema.type === "object" ? schema : { type: "object", properties: { items: schema }, required: ["items"], additionalProperties: false };
       const content = parts.map((p) =>
         p.text !== undefined
           ? { type: "text", text: p.text }
@@ -118,7 +118,7 @@ const openai = (model) => {
           ...(/^(o\d|gpt-5)/.test(chosen) ? {} : { temperature }),
         }),
       );
-      return parseJSON(response.choices?.[0]?.message?.content);
+      return parseJSON(response.choices?.[0]?.message?.content, schema);
     },
   };
 };

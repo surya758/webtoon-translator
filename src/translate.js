@@ -16,14 +16,15 @@ const SCHEMA = {
   },
 };
 
-const PROMPT = (n, sourceLang, glossary) => `You are a professional webtoon localizer.
+const PROMPT = (n, sourceLang, glossary, context) => `You are a professional webtoon localizer.
 The first image is a full comic page for context. It is followed by ${n} numbered crops, each containing exactly one piece of text from that page, in reading order.
 For EVERY crop return: id (the crop number), the exact original text${sourceLang ? ` (source language: ${sourceLang})` : ""}, and a natural English translation.
 Translate like a published English webtoon: casual, punchy, matching tone and register (swearing stays swearing, formal stays formal). Keep honorifics only where they matter.
+speaker: who says the line (a name from the context if known, else a short stable label like "boy in cap"). Keep the same label for the same person across crops.
 Keep each translation compact enough to fit in the original's bubble. Use the page image and neighbouring lines for context (who is speaking, gender, continuity).
 role: "dialogue"/"thought" for speech, "caption" for narration boxes, "sfx" for sound effects (give the English onomatopoeia), "sign" for in-world text, "credit" for translator/scanlation watermarks, site URLs or upload credits (these will be erased, not translated).
 If a crop truly contains no text, return an empty original and translation.
-${glossary ? `Use these names/terms consistently:\n${glossary}\n` : ""}Return one entry per crop, ids 1..${n}.`;
+${glossary ? `Use these names/terms consistently:\n${glossary}\n` : ""}${context ? `\nSERIES CONTEXT:\n${context}\n` : ""}Return one entry per crop, ids 1..${n}.`;
 
 /** Crop a box with some breathing room so glyphs aren't clipped. */
 const cropBox = async (image, box, width, height) => {
@@ -39,20 +40,20 @@ const cropBox = async (image, box, width, height) => {
  * own crop so the OCR is exact. Mutates boxes in place adding original /
  * translation / speaker.
  */
-export const translateBoxes = async (imagePath, boxes, { sourceLang, glossary, provider = createProvider(), batchSize = 40, log = () => {} } = {}) => {
+export const translateBoxes = async (imagePath, boxes, { sourceLang, glossary, context, provider = createProvider(), batchSize = 40, log = () => {} } = {}) => {
   if (!boxes.length) return boxes;
   const image = sharp(imagePath);
   const { width, height } = await image.metadata();
-  const context = await image.clone().resize({ width: Math.min(width, 1024), height: 4096, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
+  const pageThumb = await image.clone().resize({ width: Math.min(width, 1024), height: 4096, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
 
   for (let start = 0; start < boxes.length; start += batchSize) {
     const batch = boxes.slice(start, start + batchSize);
-    const parts = [{ text: "Full page for context:" }, { image: { mimeType: "image/jpeg", data: context } }];
+    const parts = [{ text: "Full page for context:" }, { image: { mimeType: "image/jpeg", data: pageThumb } }];
     for (const [i, box] of batch.entries()) {
       parts.push({ text: `Crop ${i + 1}:` });
       parts.push({ image: { mimeType: "image/png", data: await cropBox(image, box, width, height) } });
     }
-    parts.push({ text: PROMPT(batch.length, sourceLang, glossary) });
+    parts.push({ text: PROMPT(batch.length, sourceLang, glossary, context) });
 
     const items = await provider.generateJSON({ parts, schema: SCHEMA, temperature: 0 });
     for (const it of items) {
