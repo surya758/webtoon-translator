@@ -112,15 +112,20 @@ async function createJob(extra) {
 }
 
 async function addFiles(files) {
-  const imgs = [...files].filter((f) => /image\//.test(f.type));
-  if (!imgs.length) return;
-  if (!job || job.inputDir) await createJob({});
-  status(`uploading ${imgs.length} page(s)…`);
-  for (const f of imgs) {
-    const r = await fetch(`/jobs/${job.id}/upload/${encodeURIComponent(f.name)}`, { method: "PUT", body: f });
-    const { pages } = await r.json(); job.pages = pages; render(pages);
+  const imgs = [...files].filter((f) => /image\//.test(f.type) || /\.(png|jpe?g|webp)$/i.test(f.name));
+  if (!imgs.length) return status("no image files in that selection", "err");
+  try {
+    if (!job || job.inputDir) await createJob({});
+    status(`uploading ${imgs.length} page(s)…`);
+    for (const f of imgs) {
+      const r = await fetch(`/jobs/${job.id}/upload/${encodeURIComponent(f.name)}`, { method: "PUT", body: f });
+      if (!r.ok) throw new Error((await r.json()).error || `upload failed (${r.status})`);
+      const { pages } = await r.json(); job.pages = pages; render(pages);
+    }
+    status(`${imgs.length} page(s) added`);
+  } catch (e) {
+    status(`${e.message} — is the server still running? (npm run gui)`, "err");
   }
-  status(`${imgs.length} page(s) added`);
 }
 
 function render(pages) {
@@ -166,7 +171,7 @@ $("#go").onclick = async () => {
 $("#zip").onclick = () => { window.location = `/jobs/${job.id}/zip`; };
 const drop = $("#drop");
 drop.onclick = () => $("#file").click();
-$("#file").onchange = (e) => addFiles(e.target.files);
+$("#file").onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
 ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
