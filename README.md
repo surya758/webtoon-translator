@@ -5,7 +5,7 @@ Translate webtoon / manhwa / manga pages into English, end to end: find the text
 <p align="center">
   <img src="docs/before-after.png" alt="Korean webtoon strip on the left, the same strip with English text typeset into the bubbles on the right" width="840">
   <br>
-  <sub><code>node bin/cli.js samples/strip.png --lang ko</code> — the bundled synthetic sample, untouched output.</sub>
+  <sub><code>node bin/cli.js samples/strip.png --lang ko --review</code> — the bundled synthetic sample, untouched output. It exercises short and long dialogue, a shout burst, a thought cloud, a two-lobed bubble, a caption box, a chat bubble with a name label, coloured SFX over art, and a translucent site watermark (erased, not re-rendered).</sub>
 </p>
 
 ```

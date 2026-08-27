@@ -208,10 +208,43 @@ const clampRect = (r, width, height) => {
   return { x, y, w: Math.max(1, Math.min(width - x, Math.round(r.w))), h: Math.max(1, Math.min(height - y, Math.round(r.h))) };
 };
 
-export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
+/**
+ * Dominant lettering colour of a box in the ORIGINAL image: median RGB of
+ * the pixels that contrast most with the box's background ring. Lets SFX
+ * keep their red / pink / whatever instead of coming back white.
+ */
+const letterColor = async (original, box, width, height) => {
+  const x = Math.max(0, box.x), y = Math.max(0, box.y);
+  const w = Math.min(width - x, box.w), h = Math.min(height - y, box.h);
+  if (w < 4 || h < 4) return null;
+  const { data, info } = await original.clone().extract({ left: x, top: y, width: w, height: h }).raw().toBuffer({ resolveWithObject: true });
+  const ch = info.channels;
+  const px = (i) => [data[i * ch], data[i * ch + 1], data[i * ch + 2]];
+  const ring = [];
+  for (let i = 0; i < w; i++) { ring.push(px(i)); ring.push(px((h - 1) * w + i)); }
+  for (let j = 0; j < h; j++) { ring.push(px(j * w)); ring.push(px(j * w + w - 1)); }
+  const med = (arr, k) => { const v = arr.map((p) => p[k]).sort((a, b) => a - b); return v[v.length >> 1]; };
+  const bg = [med(ring, 0), med(ring, 1), med(ring, 2)];
+  const scored = [];
+  for (let i = 0; i < w * h; i++) {
+    const p = px(i);
+    const d = Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]);
+    if (d > 120) scored.push(p);
+  }
+  if (scored.length < 30) return null;
+  // drop the outline/halo: keep the more saturated half if the letters are coloured
+  const sat = (p) => Math.max(...p) - Math.min(...p);
+  const sorted = scored.sort((a, b) => sat(b) - sat(a));
+  const top = sorted.slice(0, Math.max(30, Math.floor(sorted.length / 2)));
+  const c = [med(top, 0), med(top, 1), med(top, 2)];
+  return { r: c[0], g: c[1], b: c[2], hex: "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("") };
+};
+
+export const renderText = async (buffer, boxes, { pad = 4, originalPath } = {}) => {
   const { main } = loadFonts();
   const image = sharp(buffer);
   const { width, height } = await image.metadata();
+  const original = originalPath ? sharp(originalPath) : null;
   const composites = [];
   for (const box of boxes) {
     const text = box.translation.replace(/\s*\n\s*/g, " ").trim().toUpperCase();
@@ -241,7 +274,9 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
       }
     } else {
       cx = box.x + box.w / 2; cy = box.y + box.h / 2;
-      availW = box.w * 1.3; availH = box.h * 1.4;
+      // labels and captions over art can grow sideways; SFX stay near their footprint
+      const label = box.kind === "free" && box.role !== "sfx";
+      availW = box.w * (label ? 2.4 : 1.3); availH = box.h * (label ? 1.25 : 1.4);
       dark = (await regionLuminance(image, clampRect({ x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 }, width, height))) < 128;
     }
 
@@ -253,7 +288,12 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
     const blockH = lines.length * lh;
     const region = clampRect({ x: cx - blockW / 2 - pad, y: cy - blockH / 2 - pad, w: blockW + pad * 2, h: blockH + pad * 2 }, width, height);
 
-    const color = dark ? "#ffffff" : "#111111";
+    let color = dark ? "#ffffff" : "#111111";
+    let outline = dark ? "#111111" : "#ffffff";
+    if (box.kind === "free" && original) {
+      const lc = await letterColor(original, box, width, height);
+      if (lc) { color = lc.hex; outline = luminance(lc.r, lc.g, lc.b) < 140 ? "#ffffff" : "#111111"; }
+    }
     const ascent = (main.ascender / main.unitsPerEm) * size;
     const descent = (-main.descender / main.unitsPerEm) * size;
     const startY = pad + (lh - (ascent + descent)) / 2 + ascent;
@@ -262,7 +302,7 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
     const paths = lines
       .map((l, i) => pathData(l, (region.w - measure(l, size)) / 2, startY + i * lh, size))
       .map((d) => box.kind === "free"
-        ? `<path d="${d}" fill="${color}" stroke="${dark ? "#111111" : "#ffffff"}" stroke-width="${Math.max(2, size * 0.12)}" stroke-linejoin="round" paint-order="stroke"/>`
+        ? `<path d="${d}" fill="${color}" stroke="${outline}" stroke-width="${Math.max(2, size * 0.12)}" stroke-linejoin="round" paint-order="stroke"/>`
         : heavy
           ? `<path d="${d}" fill="${color}" stroke="${color}" stroke-width="${(size * 0.055).toFixed(2)}" stroke-linejoin="round"/>`
           : `<path d="${d}" fill="${color}"/>`)

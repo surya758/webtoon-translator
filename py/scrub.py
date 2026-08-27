@@ -131,7 +131,9 @@ def detect(img_rgb, threshold=0.3):
     # model also fired on separately) — IoU NMS doesn't catch those
     final = []
     for a in merged:
-        if any(b is not a and _area(b) > _area(a) and _contained(a[2:], b[2:]) >= 0.7 for b in merged):
+        # a is redundant if it sits mostly inside a larger box, or half inside a more confident one
+        if any(b is not a and ((_area(b) > _area(a) and _contained(a[2:], b[2:]) >= 0.7)
+                               or (b[1] > a[1] and _contained(a[2:], b[2:]) >= 0.5)) for b in merged):
             continue
         final.append(a)
     return bubbles + final

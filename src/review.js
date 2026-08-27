@@ -54,7 +54,7 @@ export const reviewRender = async (renderedBuffer, boxes, { provider, log = () =
     const box = boxes[it.id - 1];
     if (!box || it.issue === "ok") continue;
     if (it.issue === "overflow" || it.issue === "unreadable") {
-      box.scale = (box.scale ?? 1) * 0.85;
+      box.scale = (box.scale ?? 1) * 0.9;
       changed.push(box);
       log(`review: #${it.id} ${it.issue} → shrink to ${Math.round(box.scale * 100)}%`);
     } else if (it.issue === "mistranslation" && it.fix?.trim() && it.fix.trim() !== box.translation) {

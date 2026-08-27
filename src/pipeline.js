@@ -90,14 +90,14 @@ export const translateStrip = async (inputPath, outputPath, {
   // 4. render
   t = Date.now();
   const scrubbed = await fs.readFile(scrubbedPath);
-  let rendered = await renderText(scrubbed, usable);
+  let rendered = await renderText(scrubbed, usable, { originalPath: inputPath });
   lap("render", t);
 
   // 4b. review (opt-in): look at the typeset page, fix what the model flags
   if (review && usable.length) {
     t = Date.now();
     const changed = await reviewRender(rendered, usable, { provider, log });
-    if (changed.length) rendered = await renderText(scrubbed, usable);
+    if (changed.length) rendered = await renderText(scrubbed, usable, { originalPath: inputPath });
     lap("review", t, ` (${changed.length} fixed)`);
   }
   await fs.writeFile(outputPath, rendered);
