@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webtoon-translator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f4f4f2; --panel:#fff; --ink:#1b1b1b; --muted:#6b6b6b; --line:#d9d9d4; --accent:#2f5bd6; --ok:#1f8a4c; --err:#c0392b; --warn:#b7791f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 14px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  header { padding:14px 22px; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:14px; }
+  header h1 { font-size:18px; margin:0; }
+  header span { color:var(--muted); }
+  main { display:grid; grid-template-columns: 340px 1fr; gap:18px; padding:18px 22px; max-width:1500px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px; }
+  fieldset { border:0; padding:0; margin:0 0 14px; }
+  legend { font-weight:600; margin-bottom:6px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input[type=text], select { width:100%; padding:7px 8px; border:1px solid var(--line); border-radius:4px; font:inherit; background:#fff; }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .check { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; color:var(--ink); }
+  .drop { border:2px dashed var(--line); border-radius:6px; padding:22px 12px; text-align:center; color:var(--muted); cursor:pointer; margin-top:6px; }
+  .drop.over { border-color:var(--accent); color:var(--accent); background:#eef2fd; }
+  .or { text-align:center; color:var(--muted); font-size:12px; margin:8px 0; }
+  button { font:inherit; padding:9px 14px; border-radius:4px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; width:100%; margin-top:6px; }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { margin-top:10px; font-size:12px; color:var(--muted); min-height:1.4em; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:middle; font-size:13px; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.name { font-family: ui-monospace, Menlo, monospace; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; background:#eee; color:#555; }
+  .pill.running { background:#e7edfb; color:var(--accent); } .pill.done { background:#e5f5eb; color:var(--ok); } .pill.error { background:#fbe9e7; color:var(--err); }
+  td.msg { color:var(--muted); font-size:12px; max-width:380px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .thumbs img { height:56px; border:1px solid var(--line); border-radius:3px; margin-right:4px; cursor:zoom-in; background:#fff; }
+  .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .toolbar .right { display:flex; gap:8px; }
+  #viewer { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; z-index:10; overflow:auto; padding:20px; }
+  #viewer.open { display:flex; gap:16px; justify-content:center; align-items:flex-start; }
+  #viewer img { max-width:46vw; background:#fff; }
+  #viewer .cap { position:fixed; top:10px; left:20px; color:#fff; font-size:13px; }
+  .empty { color:var(--muted); padding:30px; text-align:center; }
+</style>
+</head>
+<body>
+<header><h1>webtoon-translator</h1><span>chapter → English</span></header>
+<main>
+  <section class="card">
+    <fieldset>
+      <legend>1. Chapter pages</legend>
+      <div id="drop" class="drop">Drop page images here<br><small>or click to choose (png / jpg / webp)</small></div>
+      <input id="file" type="file" multiple accept="image/*" hidden>
+      <div class="or">— or —</div>
+      <label>Folder on this machine</label>
+      <input id="inputDir" type="text" placeholder="/path/to/chapter-12">
+      <label>Output folder (optional)</label>
+      <input id="outDir" type="text" placeholder="defaults to <folder>/translated">
+    </fieldset>
+    <fieldset>
+      <legend>2. Options</legend>
+      <div class="row">
+        <div><label>Source language</label>
+          <select id="lang"><option value="">auto</option><option value="ko">Korean</option><option value="ja">Japanese</option><option value="zh">Chinese</option><option value="es">Spanish</option><option value="fr">French</option><option value="id">Indonesian</option><option value="th">Thai</option><option value="pt">Portuguese</option><option value="vi">Vietnamese</option></select></div>
+        <div><label>Provider</label>
+          <select id="provider"><option value="">auto</option><option value="openai">OpenAI</option><option value="gemini">Gemini API</option><option value="vertex">Vertex AI</option></select></div>
+      </div>
+      <label>Model (optional)</label>
+      <input id="model" type="text" placeholder="provider default">
+      <label class="check"><input id="series" type="checkbox" checked> Chapter context (glossary + character voices carry across pages)</label>
+      <label class="check"><input id="review" type="checkbox"> QA review pass (+1 model call per page)</label>
+    </fieldset>
+    <button id="go" class="primary">Translate chapter</button>
+    <div id="status"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <div><strong id="title">No chapter loaded</strong> <span id="count" style="color:var(--muted)"></span></div>
+      <div class="right">
+        <button id="zip" disabled>Download all (.zip)</button>
+        <button id="openOut" disabled title="Where the files were written">Output folder</button>
+      </div>
+    </div>
+    <div id="empty" class="empty">Add pages on the left, then press <b>Translate chapter</b>. Pages run in order so names and voices stay consistent across the chapter.</div>
+    <table id="table" hidden>
+      <thead><tr><th style="width:36px">#</th><th>Page</th><th style="width:90px">Status</th><th>Progress</th><th>Before / after</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+</main>
+<div id="viewer"><div class="cap">click anywhere to close</div><img id="vIn"><img id="vOut"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let job = null, es = null;
+const status = (m, cls) => { $("#status").textContent = m; $("#status").style.color = cls === "err" ? "var(--err)" : "var(--muted)"; };
+
+const options = () => ({
+  lang: $("#lang").value, provider: $("#provider").value, model: $("#model").value.trim(),
+  series: $("#series").checked, review: $("#review").checked,
+});
+
+async function createJob(extra) {
+  const r = await fetch("/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...options(), ...extra }) });
+  if (!r.ok) throw new Error((await r.json()).error);
+  job = await r.json();
+  $("#title").textContent = extra.inputDir ? extra.inputDir : `Uploaded chapter ${job.id}`;
+  $("#openOut").disabled = false; $("#openOut").onclick = () => { navigator.clipboard?.writeText(job.outDir); status(`output: ${job.outDir} (copied)`); };
+  render(job.pages);
+  return job;
+}
+
+async function addFiles(files) {
+  const imgs = [...files].filter((f) => /image\//.test(f.type));
+  if (!imgs.length) return;
+  if (!job || job.inputDir) await createJob({});
+  status(`uploading ${imgs.length} page(s)…`);
+  for (const f of imgs) {
+    const r = await fetch(`/jobs/${job.id}/upload/${encodeURIComponent(f.name)}`, { method: "PUT", body: f });
+    const { pages } = await r.json(); render(pages);
+  }
+  status(`${imgs.length} page(s) added`);
+}
+
+function render(pages) {
+  const has = pages.length > 0;
+  $("#empty").hidden = has; $("#table").hidden = !has;
+  $("#count").textContent = has ? `${pages.filter((p) => p.status === "done").length}/${pages.length} done` : "";
+  $("#rows").innerHTML = pages.map((p, i) => `
+    <tr data-name="${p.name}">
+      <td>${i + 1}</td><td class="name">${p.name}</td>
+      <td><span class="pill ${p.status}">${p.status}</span></td>
+      <td class="msg">${p.msg ?? ""}</td>
+      <td class="thumbs"><img src="/jobs/${job.id}/in/${encodeURIComponent(p.name)}" loading="lazy" data-in="${p.name}" data-out="${p.out ?? ""}">${p.out ? `<img src="/jobs/${job.id}/out/${encodeURIComponent(p.out)}?t=${Date.now()}" loading="lazy" data-in="${p.name}" data-out="${p.out}">` : ""}</td>
+    </tr>`).join("");
+  $("#zip").disabled = !pages.some((p) => p.out);
+}
+
+function listen() {
+  es?.close();
+  es = new EventSource(`/jobs/${job.id}/events`);
+  const pages = new Map(job.pages.map((p) => [p.name, p]));
+  es.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.snapshot) { m.snapshot.forEach((p) => pages.set(p.name, p)); }
+    else if (m.page) { pages.set(m.page, { ...pages.get(m.page), ...m }); }
+    else if (m.done) { status("chapter finished"); $("#go").disabled = false; es.close(); }
+    else if (m.error) { status(m.error, "err"); }
+    render([...pages.values()]);
+  };
+}
+
+$("#go").onclick = async () => {
+  try {
+    const inputDir = $("#inputDir").value.trim();
+    if (inputDir) await createJob({ inputDir, outDir: $("#outDir").value.trim() || undefined });
+    else if (!job) return status("add pages or a folder first", "err");
+    if (!job.pages.length) return status("no images found", "err");
+    $("#go").disabled = true; status("translating…");
+    listen();
+    await fetch(`/jobs/${job.id}/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(options()) });
+  } catch (e) { status(e.message, "err"); $("#go").disabled = false; }
+};
+
+$("#zip").onclick = () => { window.location = `/jobs/${job.id}/zip`; };
+const drop = $("#drop");
+drop.onclick = () => $("#file").click();
+$("#file").onchange = (e) => addFiles(e.target.files);
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+
+document.addEventListener("click", (e) => {
+  const img = e.target.closest(".thumbs img");
+  if (!img) return;
+  $("#vIn").src = `/jobs/${job.id}/in/${encodeURIComponent(img.dataset.in)}`;
+  $("#vOut").src = img.dataset.out ? `/jobs/${job.id}/out/${encodeURIComponent(img.dataset.out)}` : "";
+  $("#vOut").style.display = img.dataset.out ? "" : "none";
+  $("#viewer").classList.add("open");
+});
+$("#viewer").onclick = () => $("#viewer").classList.remove("open");
+</script>
+</body>
+</html>

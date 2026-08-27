@@ -8,6 +8,7 @@
   },
   "scripts": {
     "translate": "node bin/cli.js",
+    "gui": "node bin/gui.js",
     "models": "bash scripts/download-models.sh",
     "setup:py": "cd py && uv venv --python 3.12 && uv pip install -e ."
   },

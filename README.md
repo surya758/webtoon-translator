@@ -56,6 +56,18 @@ Any OpenAI-compatible gateway works via `OPENAI_BASE_URL`.
 
 ## Usage
 
+### GUI — translate a whole chapter
+
+```bash
+npm run gui            # opens http://127.0.0.1:7860
+```
+
+Drop the chapter's page images on the page (or type a folder path), pick the source language / provider, and press **Translate chapter**. Pages run in natural order (`01.jpg`, `02.jpg`, …) with chapter context on by default, so names and character voices stay consistent from the first page to the last. Each row shows live progress and before/after thumbnails (click to compare full-size); when it's done, download everything as a zip or open the output folder (`<folder>/translated` for folder jobs).
+
+It's a plain local server (`src/server.js`, no framework) with a small JSON/SSE API, so it's also usable headlessly — see the route list at the top of that file.
+
+### CLI — one page at a time
+
 ```bash
 node bin/cli.js page.jpg                          # auto-detect language + provider
 node bin/cli.js page.jpg --lang es                # source-language hint (ko, ja, zh, es, …)
