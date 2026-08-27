@@ -21,6 +21,14 @@ node bin/cli.js page.jpg --lang ko        →  out/page.en.png
 
 Roughly 15 s for a 720×9000 strip on an M-series Mac, using one or two LLM calls.
 
+### As a service
+
+`python py/scrub.py serve` keeps the detector and LaMa loaded and answers JSON-line jobs on
+stdin; `src/scrub-py.js` runs a pool of these (`SCRUB_WORKERS`, default cores/3, each
+`SCRUB_THREADS` ONNX threads) so batch translation never pays model load per page and
+never oversubscribes the CPU. Measured on a 12-core M-series: one page ~6 s, ten pages
+at once ~16 s. The mangally app's `scripts/translate-server.mjs` is the HTTP front for it.
+
 ## Setup
 
 Requires Node ≥ 20, Python ≥ 3.12 and [uv](https://docs.astral.sh/uv/).

@@ -48,3 +48,5 @@ const boxes = await translateStrip(input, out, {
 });
 for (const b of boxes) console.log(`[${b.kind}] ${b.original}  →  ${b.translation}`);
 console.log(`\nwrote ${out}`);
+// The scrub workers are long-lived by design; the CLI is not.
+process.exit(0);

@@ -3,6 +3,16 @@ Detect text + bubbles in a webtoon strip and erase the text.
 
   python scrub.py detect  <in.png> <boxes.json> [--threshold 0.45]
   python scrub.py inpaint <in.png> <out.png> <boxes.json> [--mask mask.png]
+  python scrub.py serve   [--threads 4]     # persistent worker, JSON lines on stdin
+
+`serve` keeps both models loaded and handles one job per line:
+  {"id":1,"op":"detect","input":..,"boxes_json":..,"threshold":0.3}
+  {"id":2,"op":"inpaint","input":..,"output":..,"boxes_json":..,"mask":null}
+answering {"id":1,"ok":true} or {"id":1,"error":"..."} on stdout. Loading the
+detector and LaMa costs several seconds per process, which was paid twice for
+EVERY page when each step was its own subprocess — and several such processes
+at once oversubscribed the CPU and could crash torch. One worker per core
+group, kept alive, is what makes batch translation fast.
 
 `inpaint` erases only the boxes listed in boxes.json, so the caller can
 first confirm with OCR which detections actually contain text (the detector
@@ -63,8 +73,25 @@ def nms(boxes, scores, iou_thr=0.5):
     return keep
 
 
+_sess = None
+_threads = None
+
+
+def detector_session():
+    """One ONNX session per process. `_threads` caps intra-op parallelism so
+    several workers can share the machine instead of each grabbing every core."""
+    global _sess
+    if _sess is None:
+        opts = ort.SessionOptions()
+        if _threads:
+            opts.intra_op_num_threads = _threads
+            opts.inter_op_num_threads = 1
+        _sess = ort.InferenceSession(str(DETECTOR), sess_options=opts, providers=["CPUExecutionProvider"])
+    return _sess
+
+
 def detect(img_rgb, threshold=0.3):
-    sess = ort.InferenceSession(str(DETECTOR), providers=["CPUExecutionProvider"])
+    sess = detector_session()
     H, W = img_rgb.shape[:2]
     # square-ish windows, 20% overlap
     win = W
@@ -278,6 +305,45 @@ def cmd_inpaint(args):
     log(f"wrote {args.output}")
 
 
+class _Job:
+    """argparse-shaped view over a JSON job, so the cmd_* functions serve both modes."""
+    def __init__(self, d):
+        self.input = d.get("input"); self.output = d.get("output"); self.boxes_json = d.get("boxes_json")
+        self.threshold = float(d.get("threshold", 0.3)); self.mask = d.get("mask")
+
+
+def cmd_serve(args):
+    global _threads
+    _threads = args.threads
+    if args.threads:
+        torch.set_num_threads(args.threads)
+    # Warm both models up front — and run each once on dummy input, because the first
+    # inference of a session is the slow one (kernel selection, MPS graph compile) and
+    # otherwise the first page on every worker pays for it.
+    sess = detector_session()
+    sess.run(None, {"images": np.zeros((1, 3, 640, 640), np.float32),
+                    "orig_target_sizes": np.array([[640, 640]], dtype=np.int64)})
+    lama_inpaint(np.zeros((64, 64, 3), np.uint8), np.full((64, 64), 255, np.uint8))
+    print(json.dumps({"ready": True}), flush=True)
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            job = json.loads(line)
+            op = job.get("op")
+            if op == "detect":
+                cmd_detect(_Job(job))
+            elif op == "inpaint":
+                cmd_inpaint(_Job(job))
+            else:
+                raise ValueError(f"unknown op {op!r}")
+            print(json.dumps({"id": job.get("id"), "ok": True}), flush=True)
+        except Exception as e:  # one bad page must not take the worker down
+            log(f"job failed: {e!r}")
+            print(json.dumps({"id": job.get("id") if isinstance(job, dict) else None, "error": str(e)}), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -285,6 +351,7 @@ def main():
     d.add_argument("--threshold", type=float, default=0.3); d.set_defaults(fn=cmd_detect)
     i = sub.add_parser("inpaint"); i.add_argument("input"); i.add_argument("output"); i.add_argument("boxes_json")
     i.add_argument("--mask"); i.set_defaults(fn=cmd_inpaint)
+    s = sub.add_parser("serve"); s.add_argument("--threads", type=int, default=0); s.set_defaults(fn=cmd_serve)
     args = ap.parse_args()
     args.fn(args)
 

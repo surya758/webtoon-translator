@@ -18,8 +18,13 @@ export const translateStrip = async (inputPath, outputPath, { sourceLang, glossa
   const workDir = path.join(path.dirname(outputPath), ".work");
   await fs.mkdir(workDir, { recursive: true });
 
+  const t0 = Date.now();
+  const lap = (label, since) => log(`${label} ${((Date.now() - since) / 1000).toFixed(1)}s`);
   const boxes = await detectBoxes(inputPath, path.join(workDir, `${base}.boxes.json`), { log });
+  lap("detect", t0);
+  const t1 = Date.now();
   await translateBoxes(inputPath, boxes, { sourceLang, glossary, provider, log });
+  lap("translate", t1);
   // An empty translation for real text means "unchanged" (names, logos): keep the original.
   for (const b of boxes) if (b.original && !b.translation && b.role !== "credit") b.translation = b.original;
   const norm = (t) => (t ?? "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -35,9 +40,13 @@ export const translateStrip = async (inputPath, outputPath, { sourceLang, glossa
   if (debugJson) await fs.writeFile(debugJson, JSON.stringify(boxes, null, 2));
 
   const scrubbedPath = path.join(workDir, `${base}.scrubbed.png`);
+  const t2 = Date.now();
   await inpaintBoxes(inputPath, scrubbedPath, withText, { maskPath: keepWork ? path.join(workDir, `${base}.mask.png`) : undefined, log });
+  lap("inpaint", t2);
 
+  const t3 = Date.now();
   const rendered = await renderText(await fs.readFile(scrubbedPath), usable);
+  lap("render", t3);
   await fs.writeFile(outputPath, rendered);
   if (!keepWork) await fs.rm(workDir, { recursive: true, force: true });
   return usable;
