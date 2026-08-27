@@ -69,11 +69,23 @@ const wrap = (text, size, maxWidth) => {
 };
 
 /** Largest font size whose wrapped lines fit inside w×h. */
-const fit = (text, w, h, { maxSize, minSize = 9, lineHeight = 1.15 }) => {
+/**
+ * `shape`: "rect" — block must fit in w×h; "ellipse" — w×h is the ellipse's
+ * axes and the block fits when (bw/w)² + (bh/h)² ≤ 1 (with a little margin).
+ */
+const fit = (text, w, h, { maxSize, minSize = 9, lineHeight = 1.15, shape = "rect" }) => {
+  const ok = (bw, bh) => (shape === "ellipse" ? (bw / w) ** 2 + (bh / h) ** 2 <= 0.88 : bw <= w && bh <= h);
   const fits = [];
   for (let size = maxSize; size >= minSize; size -= 1) {
-    const lines = wrap(text, size, w);
-    if (lines.every((l) => measure(l, size) <= w) && lines.length * size * lineHeight <= h) fits.push({ size, lines });
+    // wrap width: for an ellipse, the widest a block of this many lines can be
+    let lines = wrap(text, size, w);
+    if (shape === "ellipse") {
+      const bh = lines.length * size * lineHeight;
+      const maxW = w * Math.sqrt(Math.max(0, 0.88 - (bh / h) ** 2));
+      lines = wrap(text, size, maxW);
+    }
+    const bw = Math.max(...lines.map((l) => measure(l, size)));
+    if (ok(bw, lines.length * size * lineHeight)) fits.push({ size, lines });
   }
   if (!fits.length) return { size: minSize, lines: wrap(text, minSize, w) };
   // Letterers prefer fewer lines: take the fewest-line layout among those
@@ -170,10 +182,14 @@ const bubbleInterior = async (image, container, box, width, height) => {
   while (right < w - 1 && fill[cy * w + right + 1]) right++;
   while (top > 0 && fill[(top - 1) * w + cx]) top--;
   while (bottom < h - 1 && fill[(bottom + 1) * w + cx]) bottom++;
+  // how much of its bounding box the (un-eroded) fill covers: ellipse ≈ 0.79, rectangle ≈ 1
+  let filled = 0;
+  for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) if (fill[y * w + x]) filled++;
   return {
     cx: x0 + cx, cy: y0 + cy,
     spanW: right - left + 1, spanH: bottom - top + 1,
     bbox: { x: x0 + minX, y: y0 + minY, w: maxX - minX + 1, h: maxY - minY + 1 },
+    rectLike: filled / area > 0.93,
     dark: seed < 128,
   };
 };
@@ -213,21 +229,23 @@ export const renderText = async (buffer, boxes, { pad = 4 } = {}) => {
     const plausible = c && c.w * c.h <= box.w * box.h * 8 && c.w >= box.w * 0.9 && c.h >= box.h * 0.9;
     const interior = plausible ? await bubbleInterior(image, c, box, width, height) : null;
 
-    let cx, cy, availW, availH, dark;
+    let cx, cy, availW, availH, dark, shape = "rect";
     if (interior) {
       cx = interior.cx; cy = interior.cy; dark = interior.dark;
-      // usable area: the span through the centroid, with margin; a rect
-      // inscribed in an ellipse of that span is ~0.71 of it, so 0.8 with the
-      // wrap's slack is a safe, natural-looking width for comic lettering
-      availW = Math.min(interior.spanW, interior.bbox.w) * 0.8;
-      availH = Math.min(interior.spanH, interior.bbox.h) * 0.8;
+      if (interior.rectLike) {
+        availW = interior.bbox.w * 0.86; availH = interior.bbox.h * 0.8;
+      } else {
+        // treat the bubble as the ellipse spanned through its centroid
+        shape = "ellipse";
+        availW = Math.min(interior.spanW, interior.bbox.w); availH = Math.min(interior.spanH, interior.bbox.h);
+      }
     } else {
       cx = box.x + box.w / 2; cy = box.y + box.h / 2;
       availW = box.w * 1.3; availH = box.h * 1.4;
       dark = (await regionLuminance(image, clampRect({ x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 }, width, height))) < 128;
     }
 
-    const { size, lines } = fit(text, availW, availH, { maxSize });
+    const { size, lines } = fit(text, availW, availH, { maxSize, shape });
     const lh = size * 1.15;
     const blockW = Math.max(...lines.map((l) => measure(l, size)));
     const blockH = lines.length * lh;

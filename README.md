@@ -2,6 +2,12 @@
 
 Translate webtoon / manhwa / manga pages into English, end to end: find the text, read and translate it with an LLM, erase the original, and typeset the English back into the bubbles.
 
+<p align="center">
+  <img src="docs/before-after.png" alt="Korean webtoon strip on the left, the same strip with English text typeset into the bubbles on the right" width="840">
+  <br>
+  <sub><code>node bin/cli.js samples/strip.png --lang ko</code> — the bundled synthetic sample, untouched output.</sub>
+</p>
+
 ```
 node bin/cli.js page.jpg --lang ko        →  out/page.en.png
 ```
